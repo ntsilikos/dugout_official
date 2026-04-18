@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dugout
 
-## Getting Started
+Sports card inventory management and cross-marketplace selling platform. Built with Next.js 16, Supabase, Claude Sonnet 4, and CardHedge.
 
-First, run the development server:
+## Features
+
+- **AI Scan + Grade** — snap a photo, Claude identifies the card and grades it
+- **CardHedge verification** — every scan cross-checks against CardHedge's card database for accurate metadata and pricing
+- **Cross-marketplace listings** — eBay, TikTok Shop (more coming)
+- **Portfolio tracking** — real-time collection value, daily snapshots, sport/brand allocation
+- **Collection appraisal** — batch refresh every card's estimated value from live market data
+- **Card Hunter** — saved searches across connected marketplaces
+- **Repacks, Consignment, Set tracking, Show mode** — everything a hobbyist-to-pro seller needs
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires a `.env.local` with:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+ANTHROPIC_API_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+CARDHEDGE_API_KEY=
+EBAY_APP_ID=
+EBAY_CERT_ID=
+EBAY_DEV_ID=
+EBAY_REDIRECT_URI=
+EBAY_SANDBOX=false
+NEXT_PUBLIC_APP_URL=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack
 
-## Learn More
+- Next.js 16.2.3 (App Router, Turbopack)
+- Supabase (Postgres + Auth + Storage)
+- Claude Sonnet 4 via `@anthropic-ai/sdk`
+- Tailwind CSS v4
+- CardHedge API for pricing data
+- eBay Browse + Sell APIs for marketplace integration
 
-To learn more about Next.js, take a look at the following resources:
+## Repo layout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `app/(auth)/` — login, signup, OAuth callbacks
+- `app/(app)/` — authenticated pages
+- `app/api/` — route handlers
+- `app/components/` — shared UI
+- `lib/` — server-side libs (Supabase clients, pricing, marketplaces, AI prompts)
+- `proxy.ts` — auth middleware
+- `supabase-schema.sql` / `supabase-migration.sql` — database schema
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `CLAUDE.md` for detailed architecture notes and conventions.
