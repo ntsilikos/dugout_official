@@ -7,6 +7,7 @@ interface StatsGridProps {
   cardsListed: number;
   cardsSold: number;
   dailyChangeCents?: number | null;
+  totalRevenueCents?: number;
 }
 
 const DISPLAY_FONT = "font-[family-name:var(--font-bebas-neue)]";
@@ -18,6 +19,7 @@ export default function StatsGrid({
   cardsListed,
   cardsSold,
   dailyChangeCents,
+  totalRevenueCents = 0,
 }: StatsGridProps) {
   const gainLoss = totalValueCents - totalCostCents;
 
@@ -113,6 +115,16 @@ export default function StatsGrid({
             </p>
           </div>
         </div>
+        {totalRevenueCents > 0 && (
+          <div className="mt-3 pt-3 border-t border-[var(--border)]">
+            <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+              Total Revenue
+            </p>
+            <p className={`${DISPLAY_FONT} text-xl text-[var(--green)] leading-none tracking-wide mt-0.5`}>
+              {formatCurrency(totalRevenueCents)}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

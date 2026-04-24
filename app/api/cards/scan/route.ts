@@ -237,7 +237,7 @@ export async function POST(
         });
         ebayComps = ebayResult.comps
           .filter((c) => c.image_url)
-          .slice(0, 6)
+          .slice(0, 24)
           .map((c) => ({
             title: c.title,
             price_cents: c.price_cents,

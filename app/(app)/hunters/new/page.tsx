@@ -12,6 +12,7 @@ export default function NewSearchPage() {
     name: string;
     filters: SearchFilters;
     max_price_cents: number | null;
+    marketplaces: string[];
   }) => {
     const res = await fetch("/api/hunters", {
       method: "POST",

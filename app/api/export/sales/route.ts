@@ -7,7 +7,7 @@ import { toCsv, csvResponse, centsToUsd, isoDate, type CsvColumn } from "@/lib/c
  */
 
 interface SaleRow {
-  source: "marketplace" | "show";
+  source: "marketplace" | "show" | "repack";
   sold_at: string;
   marketplace_or_show: string;
   card_name: string;
@@ -18,9 +18,15 @@ interface SaleRow {
   profit_cents: number | null;
 }
 
+const SOURCE_LABEL: Record<SaleRow["source"], string> = {
+  marketplace: "Marketplace",
+  show: "Card Show",
+  repack: "Repack",
+};
+
 const COLUMNS: CsvColumn<SaleRow>[] = [
   { header: "Date", value: (r) => isoDate(r.sold_at) },
-  { header: "Source", value: (r) => (r.source === "marketplace" ? "Marketplace" : "Card Show") },
+  { header: "Source", value: (r) => SOURCE_LABEL[r.source] },
   { header: "Channel", value: (r) => r.marketplace_or_show },
   { header: "Card", value: (r) => r.card_name },
   { header: "Sport", value: (r) => r.sport },
@@ -49,6 +55,16 @@ export async function GET() {
       .from("show_sales")
       .select("card_name,price_cents,sold_at,shows(name)")
       .eq("user_id", user.id);
+
+    // Sold repacks
+    const { data: soldRepacks } = await supabase
+      .from("repacks")
+      .select(
+        "name,sold_price_cents,sold_at,repack_items(cards(purchase_price_cents))"
+      )
+      .eq("user_id", user.id)
+      .eq("status", "sold")
+      .not("sold_at", "is", null);
 
     const rows: SaleRow[] = [];
 
@@ -80,6 +96,29 @@ export async function GET() {
         sale_price_cents: sale.price_cents,
         purchase_price_cents: null,
         profit_cents: null,
+      });
+    }
+
+    for (const r of soldRepacks || []) {
+      const items =
+        ((r as unknown) as {
+          repack_items?: { cards?: { purchase_price_cents?: number | null } }[];
+        }).repack_items || [];
+      const cost = items.reduce(
+        (sum, it) => sum + (it.cards?.purchase_price_cents || 0),
+        0
+      );
+      const salePrice = r.sold_price_cents || 0;
+      rows.push({
+        source: "repack",
+        sold_at: r.sold_at as string,
+        marketplace_or_show: r.name,
+        card_name: `${r.name} (${items.length} card${items.length === 1 ? "" : "s"})`,
+        sport: null,
+        grade: null,
+        sale_price_cents: salePrice,
+        purchase_price_cents: cost || null,
+        profit_cents: cost > 0 ? salePrice - cost : null,
       });
     }
 

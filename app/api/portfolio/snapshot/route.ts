@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
-export async function POST(request: NextRequest) {
-  const secret = request.headers.get("x-cron-secret");
-  if (secret !== process.env.CRON_SECRET) {
+async function runSnapshot(request: NextRequest) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -43,4 +43,13 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ snapped });
+}
+
+// Vercel Cron sends GET; external schedulers typically use POST. Support both.
+export async function GET(request: NextRequest) {
+  return runSnapshot(request);
+}
+
+export async function POST(request: NextRequest) {
+  return runSnapshot(request);
 }

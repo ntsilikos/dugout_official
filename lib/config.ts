@@ -20,7 +20,8 @@ export function isAnthropicConfigured(): boolean {
 
 export function isCardHedgeConfigured(): boolean {
   const key = process.env.CARDHEDGE_API_KEY;
-  return !!key && !key.startsWith("your-");
+  const enabled = process.env.CARDHEDGE_ENABLED === "true";
+  return !!key && !key.startsWith("your-") && enabled;
 }
 
 export function getConfiguredMarketplaces(): string[] {

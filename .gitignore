@@ -36,6 +36,9 @@ yarn-error.log*
 # Claude Code local settings (contains bash permission allowlist with secrets)
 .claude/
 
+# Codex local metadata
+.codex/
+
 # vercel
 .vercel
 

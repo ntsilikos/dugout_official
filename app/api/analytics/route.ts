@@ -100,10 +100,37 @@ export async function GET() {
     .eq("id", user.id)
     .single();
 
+  // Total revenue — marketplace listings + show sales + sold repacks
+  const [listingSalesRes, showSalesRes, repackSalesRes] = await Promise.all([
+    supabase
+      .from("listings")
+      .select("price_cents")
+      .eq("user_id", user.id)
+      .eq("status", "sold"),
+    supabase
+      .from("show_sales")
+      .select("price_cents")
+      .eq("user_id", user.id),
+    supabase
+      .from("repacks")
+      .select("sold_price_cents")
+      .eq("user_id", user.id)
+      .eq("status", "sold"),
+  ]);
+
+  const totalRevenueCents =
+    (listingSalesRes.data || []).reduce((s, r) => s + (r.price_cents || 0), 0) +
+    (showSalesRes.data || []).reduce((s, r) => s + (r.price_cents || 0), 0) +
+    (repackSalesRes.data || []).reduce((s, r) => s + (r.sold_price_cents || 0), 0);
+
+  const repacksSold = (repackSalesRes.data || []).length;
+
   const stats: DashboardStats & {
     topCards: Card[];
     dailyChangeCents: number | null;
     lastAppraisedAt: string | null;
+    totalRevenueCents: number;
+    repacksSold: number;
   } = {
     totalCards,
     totalValueCents,
@@ -115,6 +142,8 @@ export async function GET() {
     topCards,
     dailyChangeCents,
     lastAppraisedAt: profile?.last_appraised_at || null,
+    totalRevenueCents,
+    repacksSold,
   };
 
   return NextResponse.json(stats);

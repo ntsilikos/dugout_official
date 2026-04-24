@@ -9,6 +9,9 @@ interface CardPickerProps {
   onClose: () => void;
   onSelect: (cardIds: string[]) => void;
   excludeCardIds?: string[];
+  // Current repack being edited — so we show cards in OTHER active repacks as
+  // unavailable. If omitted, any card in ANY active repack is excluded.
+  currentRepackId?: string;
 }
 
 export default function CardPicker({
@@ -16,27 +19,32 @@ export default function CardPicker({
   onClose,
   onSelect,
   excludeCardIds = [],
+  currentRepackId,
 }: CardPickerProps) {
   const [cards, setCards] = useState<Card[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [busyCount, setBusyCount] = useState(0);
 
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
     setSelected(new Set());
-    fetch(`/api/cards?status=in_collection&limit=50&q=${search}`)
+    const qs = new URLSearchParams({ limit: "50", q: search });
+    if (currentRepackId) qs.set("exclude_repack_id", currentRepackId);
+    fetch(`/api/repacks/available-cards?${qs.toString()}`)
       .then((res) => res.json())
       .then((data) => {
         const available = (data.cards || []).filter(
           (c: Card) => !excludeCardIds.includes(c.id)
         );
         setCards(available);
+        setBusyCount(data.busyCount || 0);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [isOpen, search, excludeCardIds]);
+  }, [isOpen, search, excludeCardIds, currentRepackId]);
 
   const toggleCard = (id: string) => {
     setSelected((prev) => {
@@ -73,6 +81,11 @@ export default function CardPicker({
             placeholder="Search cards..."
             className="w-full px-3 py-2 border border-[var(--border-strong)] rounded-lg text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--green)] outline-none"
           />
+          {busyCount > 0 && (
+            <p className="text-xs text-[var(--text-muted)] mt-2">
+              {busyCount} card{busyCount === 1 ? " is" : "s are"} hidden — already in another active repack.
+            </p>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">

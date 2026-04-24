@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validateCostTargets } from "@/app/api/repacks/route";
 
 export async function GET(
   _request: NextRequest,
@@ -50,6 +51,31 @@ export async function PATCH(
   const { id } = await params;
   return withAuth(async (user, supabase) => {
     const body = await request.json();
+
+    // If any cost target is being updated, validate the full set against the
+    // existing row so you can't e.g. set ceiling below the current floor.
+    const costFields = ["floor_cost_cents", "target_cost_cents", "ceiling_cost_cents"];
+    if (costFields.some((f) => f in body)) {
+      const { data: current } = await supabase
+        .from("repacks")
+        .select("floor_cost_cents,target_cost_cents,ceiling_cost_cents")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+      const floor = "floor_cost_cents" in body
+        ? body.floor_cost_cents
+        : (current?.floor_cost_cents ?? null);
+      const target = "target_cost_cents" in body
+        ? body.target_cost_cents
+        : (current?.target_cost_cents ?? null);
+      const ceiling = "ceiling_cost_cents" in body
+        ? body.ceiling_cost_cents
+        : (current?.ceiling_cost_cents ?? null);
+      const costErr = validateCostTargets(floor, target, ceiling);
+      if (costErr) {
+        return NextResponse.json({ error: costErr }, { status: 400 });
+      }
+    }
 
     const { data, error } = await supabase
       .from("repacks")

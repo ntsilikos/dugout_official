@@ -22,6 +22,8 @@ interface ScanCardProps {
   ) => void;
 }
 
+const INITIAL_COMP_COUNT = 6;
+
 export default function ScanCard({ onScanComplete }: ScanCardProps) {
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,9 @@ export default function ScanCard({ onScanComplete }: ScanCardProps) {
   const [frontImage, setFrontImage] = useState<ImageData | null>(null);
   const [backImage, setBackImage] = useState<ImageData | null>(null);
   const [ebayComps, setEbayComps] = useState<EbayComp[]>([]);
+  const [showAllComps, setShowAllComps] = useState(false);
+  const [parsingIndex, setParsingIndex] = useState<number | null>(null);
+  const [overriddenFromIndex, setOverriddenFromIndex] = useState<number | null>(null);
 
   const handleImagesReady = (front: ImageData, back: ImageData | null) => {
     setFrontImage(front);
@@ -41,6 +46,8 @@ export default function ScanCard({ onScanComplete }: ScanCardProps) {
     setError(null);
     setResult(null);
     setEbayComps([]);
+    setShowAllComps(false);
+    setOverriddenFromIndex(null);
 
     try {
       const response = await fetch("/api/cards/scan", {
@@ -70,6 +77,50 @@ export default function ScanCard({ onScanComplete }: ScanCardProps) {
       setScanning(false);
     }
   };
+
+  // Use the info parsed from an eBay listing title to override scan fields
+  const handleUseListingInfo = async (comp: EbayComp, index: number) => {
+    if (!result) return;
+    setParsingIndex(index);
+    try {
+      const res = await fetch("/api/cards/parse-ebay-title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: comp.title }),
+      });
+      const data = await res.json();
+      if (data.parsed) {
+        const p = data.parsed as Partial<ScanResult>;
+        setResult({
+          ...result,
+          // Only override fields that the parser confidently filled
+          playerName: p.playerName ?? result.playerName,
+          year: p.year ?? result.year,
+          brand: p.brand ?? result.brand,
+          setName: p.setName ?? result.setName,
+          cardNumber: p.cardNumber ?? result.cardNumber,
+          variant: p.variant ?? result.variant,
+          sport: p.sport ?? result.sport,
+          // Use the listing's price as new estimate
+          estimatedValueCents: comp.price_cents,
+          // Optional flags
+          isAutograph: p.isAutograph ?? result.isAutograph,
+          isPatch: p.isPatch ?? result.isPatch,
+          isRookie: p.isRookie ?? result.isRookie,
+          // Update the description so it reflects the chosen card
+          cardIdentification: comp.title,
+        });
+        setOverriddenFromIndex(index);
+      }
+    } catch {
+      // ignore — user can try another listing
+    } finally {
+      setParsingIndex(null);
+    }
+  };
+
+  const visibleComps = showAllComps ? ebayComps : ebayComps.slice(0, INITIAL_COMP_COUNT);
+  const hasMore = ebayComps.length > INITIAL_COMP_COUNT;
 
   return (
     <div className="space-y-6">
@@ -110,12 +161,24 @@ export default function ScanCard({ onScanComplete }: ScanCardProps) {
               <GradeBadge grade={result.overallGrade} size="lg" />
             </div>
 
+            {overriddenFromIndex !== null && (
+              <div className="bg-[var(--bg-green-glow)] border border-[var(--green)]/30 rounded-lg p-3 text-xs text-[var(--green)]">
+                ✓ Card info updated from eBay listing #{overriddenFromIndex + 1}.
+                Review the values below before saving.
+              </div>
+            )}
+
             <div className="text-center">
               <p className="text-lg font-bold text-[var(--text-primary)]">{result.overallLabel}</p>
               <p className="text-sm text-[var(--text-secondary)] mt-1">{result.cardIdentification}</p>
-              {result.estimatedValueCents && (
+              {result.estimatedValueCents != null && (
                 <p className="text-lg font-bold text-[var(--green)] mt-2">
                   Est. {formatCurrency(result.estimatedValueCents)}
+                </p>
+              )}
+              {result.variantConfidence === "low" && (
+                <p className="text-xs text-yellow-400 mt-1">
+                  ⚠ Low variant confidence — pick a matching listing below if available
                 </p>
               )}
             </div>
@@ -147,37 +210,83 @@ export default function ScanCard({ onScanComplete }: ScanCardProps) {
                   Similar Listings on eBay
                 </h3>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                  Compare these to verify the scan identified your card correctly
+                  If the scan got the variant wrong, click <span className="text-[var(--green)] font-semibold">&quot;Use this info&quot;</span> on the listing that matches yours.
                 </p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
-                {ebayComps.map((comp, i) => (
-                  <a
-                    key={i}
-                    href={comp.listing_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] overflow-hidden hover:border-[var(--green)]/30 transition-colors"
-                  >
-                    {comp.image_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={comp.image_url}
-                        alt=""
-                        className="w-full aspect-square object-contain bg-white"
-                      />
-                    )}
-                    <div className="p-2">
-                      <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-tight">
-                        {comp.title}
-                      </p>
-                      <p className="text-sm font-bold text-[var(--green)] mt-1">
-                        {formatCurrency(comp.price_cents)}
-                      </p>
+                {visibleComps.map((comp, i) => {
+                  const isOverridden = overriddenFromIndex === i;
+                  const isParsing = parsingIndex === i;
+                  return (
+                    <div
+                      key={i}
+                      className={`group bg-[var(--bg-primary)] rounded-lg border overflow-hidden transition-colors ${
+                        isOverridden
+                          ? "border-[var(--green)]"
+                          : "border-[var(--border)] hover:border-[var(--green)]/30"
+                      }`}
+                    >
+                      {comp.image_url && (
+                        <a
+                          href={comp.listing_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={comp.image_url}
+                            alt=""
+                            className="w-full aspect-square object-contain bg-white"
+                          />
+                        </a>
+                      )}
+                      <div className="p-2">
+                        <a
+                          href={comp.listing_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block"
+                        >
+                          <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-tight hover:text-[var(--text-primary)]">
+                            {comp.title}
+                          </p>
+                          <p className="text-sm font-bold text-[var(--green)] mt-1">
+                            {formatCurrency(comp.price_cents)}
+                          </p>
+                        </a>
+                        <button
+                          onClick={() => handleUseListingInfo(comp, i)}
+                          disabled={isParsing || isOverridden}
+                          className={`w-full mt-2 px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                            isOverridden
+                              ? "bg-[var(--green)] text-[var(--bg-primary)]"
+                              : isParsing
+                                ? "bg-[var(--bg-card-hover)] text-[var(--text-muted)]"
+                                : "border border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)]"
+                          }`}
+                        >
+                          {isOverridden
+                            ? "✓ USING THIS"
+                            : isParsing
+                              ? "PARSING..."
+                              : "USE THIS INFO"}
+                        </button>
+                      </div>
                     </div>
-                  </a>
-                ))}
+                  );
+                })}
               </div>
+              {hasMore && (
+                <button
+                  onClick={() => setShowAllComps(!showAllComps)}
+                  className="w-full px-4 py-2 text-xs text-[var(--green)] font-semibold border-t border-[var(--border)] hover:bg-[var(--bg-primary)] cursor-pointer"
+                >
+                  {showAllComps
+                    ? `Show fewer (top ${INITIAL_COMP_COUNT})`
+                    : `Show ${ebayComps.length - INITIAL_COMP_COUNT} more listings`}
+                </button>
+              )}
             </div>
           )}
         </div>

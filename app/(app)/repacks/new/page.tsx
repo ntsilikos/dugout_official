@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import Breadcrumb from "@/app/components/ui/Breadcrumb";
+import { useToast } from "@/app/components/ui/Toast";
 
 export default function NewRepackPage() {
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [targetItems, setTargetItems] = useState("");
@@ -16,29 +17,57 @@ export default function NewRepackPage() {
   const [isTemplate, setIsTemplate] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Client-side cost validation so the user sees problems immediately
+  const costError = useMemo(() => {
+    const floor = floorCost ? parseFloat(floorCost) : null;
+    const target = targetCost ? parseFloat(targetCost) : null;
+    const ceiling = ceilingCost ? parseFloat(ceilingCost) : null;
+    if (floor != null && target != null && floor > target) {
+      return "Floor cost can't be higher than target cost.";
+    }
+    if (target != null && ceiling != null && target > ceiling) {
+      return "Target cost can't be higher than ceiling cost.";
+    }
+    if (floor != null && ceiling != null && floor > ceiling) {
+      return "Floor cost can't be higher than ceiling cost.";
+    }
+    return null;
+  }, [floorCost, targetCost, ceilingCost]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (costError) {
+      toast.error(costError);
+      return;
+    }
     setSaving(true);
 
-    const res = await fetch("/api/repacks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        description: description || null,
-        target_items: targetItems ? parseInt(targetItems) : null,
-        target_cost_cents: targetCost ? Math.round(parseFloat(targetCost) * 100) : null,
-        ceiling_cost_cents: ceilingCost ? Math.round(parseFloat(ceilingCost) * 100) : null,
-        floor_cost_cents: floorCost ? Math.round(parseFloat(floorCost) * 100) : null,
-        is_template: isTemplate,
-      }),
-    });
+    try {
+      const res = await fetch("/api/repacks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description: description || null,
+          target_items: targetItems ? parseInt(targetItems) : null,
+          target_cost_cents: targetCost ? Math.round(parseFloat(targetCost) * 100) : null,
+          ceiling_cost_cents: ceilingCost ? Math.round(parseFloat(ceilingCost) * 100) : null,
+          floor_cost_cents: floorCost ? Math.round(parseFloat(floorCost) * 100) : null,
+          is_template: isTemplate,
+        }),
+      });
 
-    const data = await res.json();
-    if (data.repack) {
-      router.push(`/repacks/${data.repack.id}`);
+      const data = await res.json();
+      if (data.repack) {
+        router.push(`/repacks/${data.repack.id}`);
+      } else {
+        toast.error(data.error || "Failed to create repack");
+        setSaving(false);
+      }
+    } catch {
+      toast.error("Couldn't reach the server");
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
@@ -75,7 +104,14 @@ export default function NewRepackPage() {
         </div>
 
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-6 shadow-sm space-y-4">
-          <h3 className="font-semibold text-[var(--text-primary)]">Cost Targets</h3>
+          <div>
+            <h3 className="font-semibold text-[var(--text-primary)]">Cost Targets</h3>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Optional. Set a <strong>floor</strong> (min cost you&apos;ll accept), <strong>target</strong> (what
+              you aim for), and <strong>ceiling</strong> (max cost). The detail page will show a live
+              progress bar as you add cards.
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Target # of Items</label>
@@ -86,6 +122,18 @@ export default function NewRepackPage() {
                 onChange={(e) => setTargetItems(e.target.value)}
                 className="w-full px-3 py-2 border border-[var(--border-strong)] rounded-lg text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--green)] outline-none"
                 placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Floor Cost ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={floorCost}
+                onChange={(e) => setFloorCost(e.target.value)}
+                className="w-full px-3 py-2 border border-[var(--border-strong)] rounded-lg text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--green)] outline-none"
+                placeholder="$0"
               />
             </div>
             <div>
@@ -112,19 +160,12 @@ export default function NewRepackPage() {
                 placeholder="$0"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Floor Cost ($)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={floorCost}
-                onChange={(e) => setFloorCost(e.target.value)}
-                className="w-full px-3 py-2 border border-[var(--border-strong)] rounded-lg text-sm text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--green)] outline-none"
-                placeholder="$0"
-              />
-            </div>
           </div>
+          {costError && (
+            <div className="bg-red-950/20 border border-red-500/30 rounded-lg p-3">
+              <p className="text-xs text-red-400">{costError}</p>
+            </div>
+          )}
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer">
@@ -140,7 +181,7 @@ export default function NewRepackPage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={saving || !name}
+            disabled={saving || !name || !!costError}
             className="px-6 py-2.5 bg-[var(--green)] text-white rounded-lg font-medium hover:bg-[var(--green-hover)] disabled:opacity-50 cursor-pointer"
           >
             {saving ? "Creating..." : "Create Repack"}

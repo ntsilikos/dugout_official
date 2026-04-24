@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api-helpers";
 import { getProvider } from "@/lib/marketplaces/registry";
 import { getConfiguredMarketplaces } from "@/lib/config";
-import type { MarketplaceConnection, MarketplaceSearchQuery } from "@/lib/marketplaces/types";
+import { buildHunterQuery, filterListingsByCardNumbers } from "@/lib/hunter-query";
+import type { MarketplaceConnection } from "@/lib/marketplaces/types";
 
 export async function POST(
   _request: NextRequest,
@@ -10,7 +11,6 @@ export async function POST(
 ) {
   const { id } = await params;
   return withAuth(async (user, supabase) => {
-    // Get the search
     const { data: search } = await supabase
       .from("card_searches")
       .select("*")
@@ -22,47 +22,41 @@ export async function POST(
       return NextResponse.json({ error: "Search not found" }, { status: 404 });
     }
 
-    // Check if any marketplaces are configured
     const configuredMPs = getConfiguredMarketplaces();
     if (configuredMPs.length === 0) {
       return NextResponse.json({
         error: "marketplace_not_configured",
-        message: "No marketplace API keys are configured. Add your eBay API credentials in your environment to enable marketplace searches.",
+        message:
+          "No marketplace API keys are configured. Add eBay or TikTok credentials to enable searches.",
         newResults: 0,
         totalResults: 0,
       });
     }
 
     const filters = search.filters as Record<string, string | number | boolean>;
+    const query = buildHunterQuery(filters, search.max_price_cents);
 
-    // Build search query from filters
-    const keywords = [
-      filters.athlete,
-      filters.sport,
-      filters.year,
-      filters.manufacturer,
-      filters.set_name,
-      filters.parallel,
-      filters.card_number,
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    const query: MarketplaceSearchQuery = {
-      keyword: keywords || "sports card",
-      sport: filters.sport as string | undefined,
-      maxPrice: search.max_price_cents || undefined,
-      grader: filters.grader as string | undefined,
-      minGrade: filters.grade_min as number | undefined,
-      maxGrade: filters.grade_max as number | undefined,
-    };
-
-    // Get user's marketplace connections
-    const marketplacesToSearch = (search.marketplaces as string[])?.length
+    // Determine marketplaces to search — use saved selection, fall back to all
+    // configured if none specified, then intersect with what's configured.
+    const requested = (search.marketplaces as string[])?.length
       ? (search.marketplaces as string[])
-      : ["ebay"];
+      : configuredMPs;
+    const marketplacesToSearch = requested.filter((mp) =>
+      configuredMPs.includes(mp)
+    );
+
+    if (marketplacesToSearch.length === 0) {
+      return NextResponse.json({
+        error: "marketplace_not_configured",
+        message:
+          "None of this search's selected marketplaces are configured. Edit the search or connect those marketplaces.",
+        newResults: 0,
+        totalResults: 0,
+      });
+    }
 
     let newResults = 0;
+    const errors: { marketplace: string; message: string }[] = [];
 
     for (const marketplace of marketplacesToSearch) {
       try {
@@ -75,38 +69,51 @@ export async function POST(
           .single();
 
         const provider = getProvider(marketplace);
-        const results = await provider.searchListings(
+        const rawResults = await provider.searchListings(
           (connection || {}) as MarketplaceConnection,
           query
         );
 
-        // Insert new results, skip duplicates
+        // If this hunter targets specific card numbers (e.g. "missing from set"),
+        // filter results to listings whose titles mention one of those numbers.
+        const targetNums = (search.target_card_numbers as string[] | null) || null;
+        const results = filterListingsByCardNumbers(rawResults, targetNums);
+
+        if (targetNums && targetNums.length > 0) {
+          console.log(
+            `[hunters/run] ${marketplace}: ${rawResults.length} raw → ${results.length} after card-# filter (${targetNums.length} targets)`
+          );
+        }
+
         for (const result of results) {
-          const { error } = await supabase
-            .from("search_results")
-            .upsert(
-              {
-                search_id: id,
-                user_id: user.id,
-                marketplace,
-                marketplace_listing_id: result.marketplace_listing_id,
-                listing_url: result.listing_url,
-                title: result.title,
-                price_cents: result.price_cents,
-                image_url: result.image_url,
-                seller_name: result.seller_name,
-                found_at: new Date().toISOString(),
-              },
-              {
-                onConflict: "search_id,marketplace,marketplace_listing_id",
-                ignoreDuplicates: true,
-              }
-            );
+          const { error } = await supabase.from("search_results").upsert(
+            {
+              search_id: id,
+              user_id: user.id,
+              marketplace,
+              marketplace_listing_id: result.marketplace_listing_id,
+              listing_url: result.listing_url,
+              title: result.title,
+              price_cents: result.price_cents,
+              image_url: result.image_url,
+              seller_name: result.seller_name,
+              found_at: new Date().toISOString(),
+            },
+            {
+              onConflict: "search_id,marketplace,marketplace_listing_id",
+              ignoreDuplicates: true,
+            }
+          );
 
           if (!error) newResults++;
         }
-      } catch {
-        // Skip failed marketplace searches
+        console.log(
+          `[hunters/run] ${marketplace}: ${results.length} listings, ${newResults} new`
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[hunters/run] ${marketplace} failed:`, message);
+        errors.push({ marketplace, message });
       }
     }
 
@@ -125,7 +132,6 @@ export async function POST(
       })
       .eq("id", id);
 
-    // Create notification if new results found
     if (newResults > 0) {
       await supabase.from("notifications").insert({
         user_id: user.id,
@@ -136,6 +142,11 @@ export async function POST(
       });
     }
 
-    return NextResponse.json({ newResults, totalResults: resultCount || 0 });
+    return NextResponse.json({
+      newResults,
+      totalResults: resultCount || 0,
+      query: query.keyword,
+      errors,
+    });
   });
 }

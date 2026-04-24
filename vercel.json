@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/hunters/cron",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cards/refresh-values",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/portfolio/snapshot",
+      "schedule": "0 5 * * *"
+    }
+  ]
+}

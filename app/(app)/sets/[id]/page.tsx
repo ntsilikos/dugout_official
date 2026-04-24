@@ -85,12 +85,18 @@ export default function SetDetailPage() {
   const handleHuntMissing = async () => {
     const missing = cards.filter((c) => !c.is_owned);
     if (!missing.length || !set) return;
-    const keyword = [set.year, set.brand, set.name].filter(Boolean).join(" ");
+
+    // Pass the actual missing card numbers so the hunter only saves listings
+    // matching those #s. Otherwise the search returns the whole set.
+    const targetCardNumbers = missing
+      .map((c) => c.card_number)
+      .filter(Boolean);
+
     const res = await fetch("/api/hunters", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: `Missing from ${set.name}`,
+        name: `Missing from ${set.name} (${missing.length})`,
         filters: {
           athlete: "",
           sport: set.sport || "",
@@ -100,6 +106,7 @@ export default function SetDetailPage() {
           year_max: set.year ? String(set.year) : "",
         },
         marketplaces: ["ebay"],
+        target_card_numbers: targetCardNumbers,
       }),
     });
     const data = await res.json();

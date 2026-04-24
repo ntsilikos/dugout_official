@@ -15,6 +15,9 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q") || "";
   const sport = searchParams.get("sport") || "";
   const status = searchParams.get("status") || "";
+  // flag=needs_review shows cards whose last appraisal was flagged for review
+  // or returned no matching comps. Lets the user triage after "Appraise Collection".
+  const flag = searchParams.get("flag") || "";
   const sort = searchParams.get("sort") || "created_at";
   const order = searchParams.get("order") === "asc" ? true : false;
   const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -38,6 +41,9 @@ export async function GET(request: NextRequest) {
   }
   if (status) {
     query = query.eq("status", status);
+  }
+  if (flag === "needs_review") {
+    query = query.in("appraisal_status", ["needs_review", "no_match"]);
   }
 
   const { data: cards, count, error } = await query;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Card } from "@/lib/types";
 import { formatCurrency, getCardTitle } from "@/lib/utils";
 import GradeBadge from "@/app/components/GradeBadge";
+import AppraisalBadge from "@/app/components/inventory/AppraisalBadge";
 
 interface CardGridProps {
   cards: Card[];
@@ -79,12 +80,23 @@ export default function CardGrid({
               <p className="text-sm font-medium text-[var(--text-primary)] truncate group-hover:text-[var(--green)] transition-colors">
                 {getCardTitle(card)}
               </p>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-[var(--text-muted)]">{card.sport || "Unknown"}</span>
+              <div className="flex items-center justify-between mt-1 gap-2">
+                <span className="text-xs text-[var(--text-muted)] truncate">{card.sport || "Unknown"}</span>
                 <span className="text-sm font-semibold text-[var(--text-primary)]">
                   {formatCurrency(card.estimated_value_cents)}
                 </span>
               </div>
+              {card.appraisal_status && card.appraisal_status !== "verified" && (
+                <div className="mt-2">
+                  <AppraisalBadge
+                    status={card.appraisal_status}
+                    compCount={card.appraisal_comp_count}
+                    confidence={card.appraisal_confidence}
+                    reason={card.appraisal_flag_reason}
+                    lastAppraisedAt={card.last_appraised_at}
+                  />
+                </div>
+              )}
             </div>
           </>
         );

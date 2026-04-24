@@ -11,6 +11,8 @@ import TopCards from "@/app/components/dashboard/TopCards";
 interface ExtendedStats extends DashboardStats {
   topCards: Card[];
   dailyChangeCents: number | null;
+  totalRevenueCents?: number;
+  repacksSold?: number;
 }
 
 const DISPLAY_FONT = "font-[family-name:var(--font-bebas-neue)]";
@@ -95,6 +97,7 @@ export default function DashboardPage() {
         cardsListed={stats.cardsListed}
         cardsSold={stats.cardsSold}
         dailyChangeCents={stats.dailyChangeCents}
+        totalRevenueCents={stats.totalRevenueCents}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

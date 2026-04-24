@@ -34,6 +34,11 @@ export interface ScanResult extends GradeResult {
   setName: string | null;
   cardNumber: string | null;
   variant: string | null;
+  variantConfidence?: "high" | "medium" | "low" | null;
+  serialNumber?: string | null;
+  isAutograph?: boolean;
+  isPatch?: boolean;
+  isRookie?: boolean;
   sport: string | null;
   estimatedValueCents: number | null;
 }
@@ -54,6 +59,8 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+export type AppraisalStatus = "verified" | "needs_review" | "no_match";
 
 export interface Card {
   id: string;
@@ -77,6 +84,13 @@ export interface Card {
   status: "in_collection" | "listed" | "sold";
   created_at: string;
   updated_at: string;
+  // Appraisal provenance — null until first appraisal
+  appraisal_status?: AppraisalStatus | null;
+  appraisal_confidence?: number | null;
+  appraisal_comp_count?: number | null;
+  appraisal_flag_reason?: string | null;
+  appraisal_tier?: string | null;
+  last_appraised_at?: string | null;
   // Joined
   images?: CardImage[];
   grades?: CardGrade[];

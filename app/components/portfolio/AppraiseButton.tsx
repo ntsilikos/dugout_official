@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/app/components/ui/Toast";
+import AppraiseResultModal, {
+  type AppraiseResult,
+} from "@/app/components/portfolio/AppraiseResultModal";
 
 interface AppraiseButtonProps {
   lastAppraisedAt: string | null;
@@ -23,7 +26,7 @@ function formatRelativeTime(iso: string): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
+  const days = Math.floor(hours / 60 / 24);
   return `${days}d ago`;
 }
 
@@ -36,6 +39,7 @@ export default function AppraiseButton({
   const toast = useToast();
   const [appraising, setAppraising] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [result, setResult] = useState<AppraiseResult | null>(null);
 
   const computeCooldown = useCallback(() => {
     if (!lastAppraisedAt) return 0;
@@ -73,14 +77,15 @@ export default function AppraiseButton({
         return;
       }
 
-      const oldVal = ((data.old_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-      const newVal = ((data.new_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-      const changeMsg = data.old_total_cents !== data.new_total_cents
-        ? ` Value: ${oldVal} → ${newVal}`
-        : "";
-      toast.success(
-        `${data.updated} card${data.updated === 1 ? "" : "s"} appraised.${changeMsg}`
-      );
+      setResult({
+        verified: data.verified ?? data.updated ?? 0,
+        flagged: data.flagged ?? 0,
+        no_match: data.no_match ?? 0,
+        skipped: data.skipped ?? 0,
+        total: data.total ?? 0,
+        old_total_cents: data.old_total_cents ?? 0,
+        new_total_cents: data.new_total_cents ?? 0,
+      });
       setCooldownSeconds(COOLDOWN_MS / 1000);
       onComplete();
     } catch {
@@ -94,50 +99,58 @@ export default function AppraiseButton({
   const disabled = appraising || onCooldown;
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
-        onClick={handleAppraise}
-        disabled={disabled}
-        className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold tracking-wider font-[family-name:var(--font-bebas-neue)] transition-all cursor-pointer ${
-          disabled
-            ? "bg-[var(--bg-card-hover)] text-[var(--text-muted)] cursor-not-allowed"
-            : "bg-[var(--green)] text-[var(--bg-primary)] hover:bg-[var(--green-hover)] hover:-translate-y-px shadow-[0_0_24px_rgba(46,204,113,0.15)]"
-        }`}
-      >
-        {appraising ? (
-          <>
-            <svg
-              className="w-4 h-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-            APPRAISING...
-          </>
-        ) : onCooldown ? (
-          `AVAILABLE IN ${formatTimeRemaining(cooldownSeconds).toUpperCase()}`
-        ) : (
-          "APPRAISE COLLECTION"
+    <>
+      <div className="flex flex-col items-end gap-1">
+        <button
+          onClick={handleAppraise}
+          disabled={disabled}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold tracking-wider font-[family-name:var(--font-bebas-neue)] transition-all cursor-pointer ${
+            disabled
+              ? "bg-[var(--bg-card-hover)] text-[var(--text-muted)] cursor-not-allowed"
+              : "bg-[var(--green)] text-[var(--bg-primary)] hover:bg-[var(--green-hover)] hover:-translate-y-px shadow-[0_0_24px_rgba(46,204,113,0.15)]"
+          }`}
+        >
+          {appraising ? (
+            <>
+              <svg
+                className="w-4 h-4 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+              APPRAISING...
+            </>
+          ) : onCooldown ? (
+            `AVAILABLE IN ${formatTimeRemaining(cooldownSeconds).toUpperCase()}`
+          ) : (
+            "APPRAISE COLLECTION"
+          )}
+        </button>
+        {lastAppraisedAt && (
+          <p className="text-xs text-[var(--text-muted)]">
+            Last appraised: {formatRelativeTime(lastAppraisedAt)}
+          </p>
         )}
-      </button>
-      {lastAppraisedAt && (
-        <p className="text-xs text-[var(--text-muted)]">
-          Last appraised: {formatRelativeTime(lastAppraisedAt)}
-        </p>
-      )}
-    </div>
+      </div>
+
+      <AppraiseResultModal
+        isOpen={result !== null}
+        result={result}
+        onClose={() => setResult(null)}
+      />
+    </>
   );
 }

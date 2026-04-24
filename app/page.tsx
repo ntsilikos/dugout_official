@@ -6,18 +6,18 @@ import LandingFooter from "@/app/components/marketing/LandingFooter";
 
 const FEATURE_STRIP = [
   {
-    title: "TRACK YOUR VALUE",
-    desc: "Monitor your collection worth.",
+    title: "SCAN IN SECONDS",
+    desc: "AI identifies any card from a single photo.",
     icon: "/trackinventoryicon.png",
   },
   {
-    title: "ORGANIZE YOUR CARDS",
-    desc: "Categorize and Sort Easily.",
+    title: "PRICE WITH PRECISION",
+    desc: "Real sold-sale data, not asking prices.",
     icon: "/organizeicon.png",
   },
   {
-    title: "BUY, SELL, & TRADE",
-    desc: "Find deals and make trades.",
+    title: "LIST EVERYWHERE AT ONCE",
+    desc: "eBay, TikTok Shop, Whatnot — one click.",
     icon: "/buyselltradeicon.png",
   },
 ];
@@ -45,41 +45,41 @@ const MARKETPLACES = [
 
 const FEATURES = [
   {
+    icon: "📸",
+    title: "AI Card Scanner",
+    desc: "Snap a photo — AI identifies the player, year, set, variant, and grade in under 3 seconds.",
+  },
+  {
+    icon: "💰",
+    title: "Real Sold-Sale Pricing",
+    desc: "Every estimate is backed by actual recent sales, not inflated asking prices. Know what your cards are really worth.",
+  },
+  {
     icon: "⚡",
-    title: "Instant Cross-Listing",
-    desc: "List on eBay, Whatnot, TikTok Shop, and more simultaneously. One click, every marketplace.",
+    title: "One-Click Cross-Listing",
+    desc: "Push a card to eBay, TikTok Shop, Whatnot, and more — all at once. No copy-paste, no retyping.",
   },
   {
     icon: "🔄",
     title: "Auto-Delist on Sale",
-    desc: "When a card sells on one platform, Dugout instantly removes it everywhere else. No overselling.",
-  },
-  {
-    icon: "📸",
-    title: "Scan & List in Seconds",
-    desc: "Scan your cards, auto-populate titles and descriptions, and go live in seconds — not hours.",
+    desc: "When a card sells anywhere, Dugout pulls it from the other marketplaces instantly. Zero overselling.",
   },
   {
     icon: "📊",
-    title: "Smart Analytics",
-    desc: "Track what's selling, what's sitting, and where your buyers are coming from across every channel.",
+    title: "Portfolio Tracking",
+    desc: "Total value, gain/loss, daily change, sport breakdown. Your collection's P&L, always up to date.",
   },
   {
-    icon: "💰",
-    title: "Pricing Intelligence",
-    desc: "See real-time market comps and price your cards competitively across platforms.",
-  },
-  {
-    icon: "📦",
-    title: "Inventory Management",
-    desc: "Unlimited inventory. Organize by set, player, grade, or however your brain works.",
+    icon: "🔍",
+    title: "Card Hunter",
+    desc: "Set saved searches for cards you want. Get notified the moment matching listings appear on any marketplace.",
   },
 ];
 
 const STATS = [
-  { value: "190%", label: "More Buyer Reach" },
-  { value: "3 SEC", label: "Avg Listing Time" },
-  { value: "6", label: "Marketplaces" },
+  { value: "SECONDS", label: "To Scan & Identify" },
+  { value: "6+", label: "Marketplaces Connected" },
+  { value: "0%", label: "Transaction Fees" },
   { value: "$0", label: "To Get Started" },
 ];
 
@@ -121,22 +121,21 @@ export default async function Home() {
           {/* Left: copy */}
           <div className="animate-fade-up">
             <h1 className="font-[family-name:var(--font-bebas-neue)] text-5xl sm:text-6xl lg:text-7xl xl:text-[88px] leading-[0.95] tracking-wide text-[var(--text-primary)]">
-              Manage Your
+              Every Card.
               <br />
-              Collection
+              Every Market.
               <br />
-              Like a <span className="text-[var(--green)]">Pro.</span>
+              One <span className="text-[var(--green)]">Dugout.</span>
             </h1>
-            <p className="text-lg text-[var(--text-secondary)] max-w-md leading-relaxed mt-6">
-              The ultimate platform for tracking, organizing, and valuing your
-              sports card collection.
+            <p className="text-lg text-[var(--text-secondary)] max-w-lg leading-relaxed mt-6">
+              AI identifies any card in seconds. Live pricing from real sold sales. One-click listing to eBay, TikTok Shop, Whatnot, and more.
             </p>
             <div className="flex flex-wrap gap-3 mt-8">
               <Link
                 href="/signup"
                 className="inline-flex items-center px-7 py-3.5 bg-[var(--green)] text-[var(--bg-primary)] rounded-lg font-semibold hover:bg-[var(--green-hover)] transition-all hover:-translate-y-px shadow-[0_0_24px_rgba(46,204,113,0.2)] hover:shadow-[0_4px_32px_rgba(46,204,113,0.25)]"
               >
-                Get Started Free
+                Start Scanning Free
               </Link>
               <a
                 href="#preview"
@@ -154,9 +153,12 @@ export default async function Home() {
                 Watch Demo
               </a>
             </div>
+            <p className="text-xs text-[var(--text-muted)] mt-4">
+              Free forever. No credit card required.
+            </p>
           </div>
 
-          {/* Right: app screenshot */}
+          {/* Right: app screenshot — aspect-clamped so it doesn't read as ultra-wide */}
           <div
             className="relative animate-fade-up"
             style={{ animationDelay: "0.15s" }}
@@ -168,12 +170,12 @@ export default async function Home() {
                   "radial-gradient(circle at center, rgba(46,204,113,0.15) 0%, transparent 65%)",
               }}
             />
-            <div className="relative rounded-xl overflow-hidden border border-[var(--border-strong)] shadow-[0_24px_80px_rgba(0,0,0,0.6)] bg-[var(--bg-card)]">
+            <div className="relative rounded-xl overflow-hidden border border-[var(--border-strong)] shadow-[0_24px_80px_rgba(0,0,0,0.6)] bg-[var(--bg-card)] aspect-[16/10]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/app-photo.png"
                 alt="Dugout dashboard preview"
-                className="w-full h-auto block"
+                className="w-full h-full object-cover object-left"
               />
             </div>
           </div>
@@ -229,9 +231,8 @@ export default async function Home() {
           <h2 className="font-[family-name:var(--font-bebas-neue)] text-5xl tracking-wider mb-4">
             BUILT FOR THE HOBBY
           </h2>
-          <p className="text-[var(--text-secondary)] max-w-md mx-auto leading-relaxed">
-            Everything you need to run your card business like a pro, without
-            the headaches.
+          <p className="text-[var(--text-secondary)] max-w-lg mx-auto leading-relaxed">
+            The tools serious collectors and sellers actually use — not another glorified spreadsheet.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -296,14 +297,13 @@ export default async function Home() {
           TO THE <span className="text-[var(--green)]">PLATE</span>
         </h2>
         <p className="text-[var(--text-secondary)] max-w-md mx-auto leading-relaxed mb-9 relative">
-          Join thousands of sellers who manage their entire card business from
-          one dugout.
+          Scan your first card in under a minute. No credit card required.
         </p>
         <Link
           href="/signup"
           className="relative inline-block px-9 py-3.5 bg-[var(--green)] text-[var(--bg-primary)] rounded-lg font-semibold text-base hover:bg-[var(--green-hover)] transition-all hover:-translate-y-px shadow-[0_0_24px_rgba(46,204,113,0.15)]"
         >
-          Start Selling Free
+          Start Scanning Free
         </Link>
       </section>
 

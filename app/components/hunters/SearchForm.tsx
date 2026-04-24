@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const SPORTS = ["Baseball", "Basketball", "Football", "Hockey", "Soccer"];
 const GRADERS = ["Any", "PSA", "BGS", "SGC", "CGC"];
+
+const ALL_MARKETPLACES: { id: string; label: string }[] = [
+  { id: "ebay", label: "eBay" },
+  { id: "tiktok", label: "TikTok Shop" },
+];
 
 export interface SearchFilters {
   athlete: string;
@@ -24,10 +29,12 @@ interface SearchFormProps {
   initialName?: string;
   initialFilters?: Partial<SearchFilters>;
   initialMaxPrice?: string;
+  initialMarketplaces?: string[];
   onSubmit: (data: {
     name: string;
     filters: SearchFilters;
     max_price_cents: number | null;
+    marketplaces: string[];
   }) => Promise<void>;
   submitLabel?: string;
 }
@@ -36,12 +43,19 @@ export default function SearchForm({
   initialName = "",
   initialFilters,
   initialMaxPrice = "",
+  initialMarketplaces,
   onSubmit,
   submitLabel = "Save and Start Search",
 }: SearchFormProps) {
   const [name, setName] = useState(initialName);
   const [maxPrice, setMaxPrice] = useState(initialMaxPrice);
   const [saving, setSaving] = useState(false);
+  const [marketplaces, setMarketplaces] = useState<string[]>(
+    initialMarketplaces && initialMarketplaces.length > 0
+      ? initialMarketplaces
+      : []
+  );
+  const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [filters, setFilters] = useState<SearchFilters>({
     athlete: initialFilters?.athlete || "",
     sport: initialFilters?.sport || "",
@@ -57,8 +71,34 @@ export default function SearchForm({
     autographed: initialFilters?.autographed || false,
   });
 
+  // Auto-select all configured marketplaces by default if none were preselected
+  useEffect(() => {
+    fetch("/api/config/status")
+      .then((r) => r.json())
+      .then((data) => {
+        setConfigured(data || {});
+        if (
+          marketplaces.length === 0 &&
+          (!initialMarketplaces || initialMarketplaces.length === 0)
+        ) {
+          const defaults = ALL_MARKETPLACES.filter((mp) => data[mp.id]).map(
+            (mp) => mp.id
+          );
+          if (defaults.length > 0) setMarketplaces(defaults);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const updateFilter = (key: keyof SearchFilters, value: string | boolean) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleMarketplace = (id: string) => {
+    setMarketplaces((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -69,6 +109,7 @@ export default function SearchForm({
         name,
         filters,
         max_price_cents: maxPrice ? Math.round(parseFloat(maxPrice) * 100) : null,
+        marketplaces,
       });
     } finally {
       setSaving(false);
@@ -241,6 +282,49 @@ export default function SearchForm({
         </label>
       </div>
 
+      {/* Marketplaces to search */}
+      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-[var(--text-primary)] text-sm">
+            Search These Marketplaces
+          </h3>
+          {marketplaces.length === 0 && (
+            <span className="text-xs text-amber-500 font-medium">
+              Pick at least one
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-[var(--text-muted)] mb-3">
+          Only configured marketplaces are selectable. Connect more in Settings.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {ALL_MARKETPLACES.map((mp) => {
+            const isConfigured = configured[mp.id] === true;
+            const isSelected = marketplaces.includes(mp.id);
+            return (
+              <button
+                key={mp.id}
+                type="button"
+                onClick={() => isConfigured && toggleMarketplace(mp.id)}
+                disabled={!isConfigured}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                  !isConfigured
+                    ? "bg-[var(--bg-card-hover)] text-[var(--text-muted)] cursor-not-allowed opacity-50"
+                    : isSelected
+                      ? "bg-[var(--green)] text-[var(--bg-primary)]"
+                      : "border border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)]"
+                }`}
+                title={!isConfigured ? "Not configured" : ""}
+              >
+                {isSelected ? "✓ " : ""}
+                {mp.label}
+                {!isConfigured && " (not configured)"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Max Price */}
       <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-6 shadow-sm">
         <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
@@ -260,7 +344,7 @@ export default function SearchForm({
       <div className="flex justify-end">
         <button
           type="submit"
-          disabled={saving || !name || filledCount < 2}
+          disabled={saving || !name || filledCount < 2 || marketplaces.length === 0}
           className="px-6 py-2.5 bg-[var(--green)] text-white rounded-lg font-medium hover:bg-[var(--green-hover)] transition-colors disabled:opacity-50 cursor-pointer"
         >
           {saving ? "Saving..." : submitLabel}

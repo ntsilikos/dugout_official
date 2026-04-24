@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isCardHedgeConfigured, isEbayConfigured } from "@/lib/config";
-import { matchCard, getPriceEstimate } from "@/lib/cardhedge";
-import { buildCardQuery, cardGradeString, fetchCompsEbay } from "@/lib/pricing";
+import { matchCard } from "@/lib/cardhedge";
+import { buildCardQuery, fetchComps } from "@/lib/pricing";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
-export async function POST(request: NextRequest) {
-  const secret = request.headers.get("x-cron-secret");
-  if (secret !== process.env.CRON_SECRET) {
+async function runRefresh(request: NextRequest) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
 
     for (const card of batch) {
       try {
-        const grade = cardGradeString(card);
         const query = buildCardQuery(card);
         let cardhedgeId = card.cardhedge_card_id;
         let valueCents = 0;
@@ -60,20 +59,15 @@ export async function POST(request: NextRequest) {
           } catch { /* match failed */ }
         }
 
-        // Layer 1: eBay (PRIMARY pricing source)
-        if (isEbayConfigured() && query.trim()) {
-          try {
-            const ebayComps = await fetchCompsEbay(card);
-            if (ebayComps.median_cents > 0) valueCents = ebayComps.median_cents;
-          } catch { /* eBay failed */ }
-        }
+        const pricingInput = { ...card, cardhedge_card_id: cardhedgeId };
+        const pricingQuery = buildCardQuery(pricingInput);
 
-        // Layer 2: CardHedge price fallback
-        if (valueCents === 0 && isCardHedgeConfigured() && cardhedgeId) {
+        // Shared pricing selection
+        if (pricingQuery.trim()) {
           try {
-            const estimate = await getPriceEstimate(cardhedgeId, grade);
-            if (estimate.price > 0) valueCents = Math.round(estimate.price * 100);
-          } catch { /* estimate failed */ }
+            const pricing = await fetchComps(pricingInput);
+            valueCents = pricing.median_cents || pricing.average_cents;
+          } catch { /* pricing failed */ }
         }
 
         if (valueCents > 0) {
@@ -122,4 +116,13 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ updated, skipped, errors, total: cards.length });
+}
+
+// Vercel Cron sends GET; external schedulers typically use POST. Support both.
+export async function GET(request: NextRequest) {
+  return runRefresh(request);
+}
+
+export async function POST(request: NextRequest) {
+  return runRefresh(request);
 }

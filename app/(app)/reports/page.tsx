@@ -23,6 +23,7 @@ const MP_LABELS: Record<string, string> = {
   ebay: "eBay",
   tiktok: "TikTok Shop",
   show: "Card Shows",
+  repack: "Repacks",
 };
 
 export default function ReportsPage() {

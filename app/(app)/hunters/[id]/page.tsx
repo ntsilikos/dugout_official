@@ -6,6 +6,7 @@ import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import ConfirmModal from "@/app/components/ui/ConfirmModal";
 import Breadcrumb from "@/app/components/ui/Breadcrumb";
+import { useToast } from "@/app/components/ui/Toast";
 
 interface SearchResult {
   id: string;
@@ -26,6 +27,7 @@ interface CardSearch {
   is_active: boolean;
   result_count: number;
   last_run_at: string | null;
+  target_card_numbers?: string[] | null;
 }
 
 const MP_LABELS: Record<string, string> = { ebay: "eBay", tiktok: "TikTok Shop" };
@@ -33,6 +35,7 @@ const MP_LABELS: Record<string, string> = { ebay: "eBay", tiktok: "TikTok Shop" 
 export default function SearchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const toast = useToast();
   const [search, setSearch] = useState<CardSearch | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,18 +57,48 @@ export default function SearchDetailPage() {
   const handleRun = async () => {
     setRunning(true);
     setConfigError(null);
-    const res = await fetch(`/api/hunters/${id}/run`, { method: "POST" });
-    const data = await res.json();
-    if (data.error === "marketplace_not_configured") {
-      setConfigError(data.message);
+    try {
+      const res = await fetch(`/api/hunters/${id}/run`, { method: "POST" });
+      const data = await res.json();
+
+      if (data.error === "marketplace_not_configured") {
+        setConfigError(data.message);
+        setRunning(false);
+        return;
+      }
+
+      if (!res.ok) {
+        toast.error(data.error || data.message || "Search failed. Try again.");
+        setRunning(false);
+        return;
+      }
+
+      // Per-marketplace failures (search ran but some marketplaces errored)
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        const failedMps = data.errors
+          .map((e: { marketplace: string }) => e.marketplace)
+          .join(", ");
+        toast.error(
+          `${failedMps} search failed: ${data.errors[0].message || "see server logs"}`
+        );
+      }
+
+      // Surface success info
+      if (data.newResults > 0) {
+        toast.success(`Found ${data.newResults} new match${data.newResults > 1 ? "es" : ""}.`);
+      } else if (!data.errors?.length) {
+        toast.info("Search ran — no new matches yet.");
+      }
+
+      // Refresh results
+      const detail = await fetch(`/api/hunters/${id}`).then((r) => r.json());
+      setSearch(detail.search);
+      setResults(detail.results || []);
+    } catch {
+      toast.error("Couldn't reach the server. Try again.");
+    } finally {
       setRunning(false);
-      return;
     }
-    // Refresh results
-    const detail = await fetch(`/api/hunters/${id}`).then((r) => r.json());
-    setSearch(detail.search);
-    setResults(detail.results || []);
-    setRunning(false);
   };
 
   const handleDelete = async () => {
@@ -133,6 +166,27 @@ export default function SearchDetailPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm text-amber-800">{configError}</p>
           <a href="/settings" className="text-sm text-[var(--green)] font-medium mt-1 inline-block">Go to Settings</a>
+        </div>
+      )}
+
+      {/* Card-number whitelist badge — shows when this hunter targets specific cards */}
+      {search.target_card_numbers && search.target_card_numbers.length > 0 && (
+        <div className="bg-[var(--bg-green-glow)] border border-[var(--green)]/30 rounded-lg p-3 flex items-start gap-2">
+          <svg className="w-4 h-4 text-[var(--green)] mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <div className="text-xs">
+            <p className="font-semibold text-[var(--text-primary)]">
+              Filtering to {search.target_card_numbers.length} specific card numbers
+            </p>
+            <p className="text-[var(--text-secondary)] mt-0.5">
+              Only listings whose titles mention these card #s will be saved as results.{" "}
+              <span className="text-[var(--text-muted)]">
+                e.g. {search.target_card_numbers.slice(0, 6).map((n) => `#${n}`).join(", ")}
+                {search.target_card_numbers.length > 6 && "…"}
+              </span>
+            </p>
+          </div>
         </div>
       )}
 

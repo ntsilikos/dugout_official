@@ -42,6 +42,16 @@ export async function GET() {
       .select("price_cents,sold_at")
       .eq("user_id", user.id);
 
+    // Sold repacks — revenue + cost basis (sum of cards' purchase prices)
+    const { data: soldRepacks } = await supabase
+      .from("repacks")
+      .select(
+        "sold_price_cents,sold_at,repack_items(cards(purchase_price_cents))"
+      )
+      .eq("user_id", user.id)
+      .eq("status", "sold")
+      .not("sold_at", "is", null);
+
     const saleEntries: SaleAgg[] = [];
     for (const s of mpSales || []) {
       const card = (s as { cards?: { purchase_price_cents?: number | null } }).cards;
@@ -58,6 +68,22 @@ export async function GET() {
         purchase_price_cents: null,
         marketplace: "show",
         sold_at: s.sold_at as string,
+      });
+    }
+    for (const r of soldRepacks || []) {
+      // Sum purchase prices of all cards in the repack
+      const items = ((r as unknown) as {
+        repack_items?: { cards?: { purchase_price_cents?: number | null } }[];
+      }).repack_items || [];
+      const costBasis = items.reduce(
+        (sum, it) => sum + (it.cards?.purchase_price_cents || 0),
+        0
+      );
+      saleEntries.push({
+        sale_price_cents: r.sold_price_cents || 0,
+        purchase_price_cents: costBasis,
+        marketplace: "repack",
+        sold_at: r.sold_at as string,
       });
     }
 

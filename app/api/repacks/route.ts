@@ -30,9 +30,36 @@ export async function GET(request: NextRequest) {
   });
 }
 
+// Enforce logical order of cost targets so the progress bar, alerts, and
+// downstream math don't break on nonsensical inputs.
+export function validateCostTargets(
+  floor: number | null,
+  target: number | null,
+  ceiling: number | null
+): string | null {
+  if (floor != null && target != null && floor > target) {
+    return "Floor cost can't be higher than target cost.";
+  }
+  if (target != null && ceiling != null && target > ceiling) {
+    return "Target cost can't be higher than ceiling cost.";
+  }
+  if (floor != null && ceiling != null && floor > ceiling) {
+    return "Floor cost can't be higher than ceiling cost.";
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   return withAuth(async (user, supabase) => {
     const body = await request.json();
+
+    const floor = body.floor_cost_cents ?? null;
+    const target = body.target_cost_cents ?? null;
+    const ceiling = body.ceiling_cost_cents ?? null;
+    const costErr = validateCostTargets(floor, target, ceiling);
+    if (costErr) {
+      return NextResponse.json({ error: costErr }, { status: 400 });
+    }
 
     const { data, error } = await supabase
       .from("repacks")
@@ -41,9 +68,9 @@ export async function POST(request: NextRequest) {
         name: body.name,
         description: body.description || null,
         target_items: body.target_items || null,
-        target_cost_cents: body.target_cost_cents || null,
-        ceiling_cost_cents: body.ceiling_cost_cents || null,
-        floor_cost_cents: body.floor_cost_cents || null,
+        target_cost_cents: target,
+        ceiling_cost_cents: ceiling,
+        floor_cost_cents: floor,
         is_template: body.is_template || false,
         template_id: body.template_id || null,
         status: "draft",

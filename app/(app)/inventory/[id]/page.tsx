@@ -10,6 +10,7 @@ import GradeBreakdown from "@/app/components/GradeBreakdown";
 import CreateListingModal from "@/app/components/listings/CreateListingModal";
 import PriceComps from "@/app/components/inventory/PriceComps";
 import AuthenticityResult from "@/app/components/inventory/AuthenticityResult";
+import AppraisalBadge from "@/app/components/inventory/AppraisalBadge";
 import ConfirmModal from "@/app/components/ui/ConfirmModal";
 import Breadcrumb from "@/app/components/ui/Breadcrumb";
 
@@ -31,6 +32,18 @@ export default function CardDetailPage() {
       })
       .catch(() => setLoading(false));
   }, [id]);
+
+  // Re-fetch the card from the API after a side-effect writes to it (e.g.,
+  // the user picks a price in the Market Comps panel). Keeps the Est. Value
+  // row and appraisal badge in sync without a full page reload.
+  const refreshCard = () => {
+    fetch(`/api/cards/${id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.card) setCard(data.card);
+      })
+      .catch(() => {});
+  };
 
   const handleDelete = async () => {
     setShowDeleteConfirm(false);
@@ -167,6 +180,66 @@ export default function CardDetailPage() {
               ))}
           </div>
 
+          {card.appraisal_status && (
+            <div
+              className={`rounded-xl border p-4 shadow-sm space-y-2 ${
+                card.appraisal_status === "verified"
+                  ? "bg-emerald-500/5 border-emerald-500/20"
+                  : card.appraisal_status === "needs_review"
+                    ? "bg-amber-500/5 border-amber-500/20"
+                    : "bg-[var(--bg-card)] border-[var(--border)]"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-medium">
+                  Appraisal
+                </p>
+                <AppraisalBadge
+                  status={card.appraisal_status}
+                  compCount={card.appraisal_comp_count}
+                  confidence={card.appraisal_confidence}
+                  reason={card.appraisal_flag_reason}
+                  lastAppraisedAt={card.last_appraised_at}
+                  size="md"
+                />
+              </div>
+              {card.appraisal_status === "needs_review" && card.appraisal_flag_reason && (
+                <p className="text-sm text-amber-300">
+                  {card.appraisal_flag_reason}
+                </p>
+              )}
+              {card.appraisal_status === "no_match" && (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  No matching comps were found on eBay. Try checking the market
+                  price manually, or update this card&apos;s details so the
+                  search can identify it.
+                </p>
+              )}
+              <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] flex-wrap">
+                {typeof card.appraisal_comp_count === "number" && (
+                  <span>
+                    {card.appraisal_comp_count} comp
+                    {card.appraisal_comp_count === 1 ? "" : "s"}
+                  </span>
+                )}
+                {typeof card.appraisal_confidence === "number" &&
+                  card.appraisal_confidence > 0 && (
+                    <span>
+                      {Math.round(card.appraisal_confidence * 100)}% confidence
+                    </span>
+                  )}
+                {card.appraisal_tier && <span>{card.appraisal_tier}</span>}
+                {card.last_appraised_at && (
+                  <span>· {formatDate(card.last_appraised_at)}</span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--text-muted)] pt-1 border-t border-white/5">
+                Use the Market Price Checker below to verify this estimate
+                against live eBay comps.
+              </p>
+            </div>
+          )}
+
           {card.notes && (
             <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 shadow-sm">
               <p className="text-sm text-[var(--text-secondary)]">{card.notes}</p>
@@ -176,7 +249,7 @@ export default function CardDetailPage() {
       </div>
 
       {/* Market Price */}
-      <PriceComps cardId={card.id} />
+      <PriceComps cardId={card.id} onValueUpdated={refreshCard} />
 
       {/* Authenticity Check */}
       <AuthenticityResult cardId={card.id} hasImage={!!primaryImage?.url} />

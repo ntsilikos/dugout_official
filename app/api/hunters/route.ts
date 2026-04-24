@@ -45,6 +45,10 @@ export async function POST(request: NextRequest) {
         filters: body.filters || {},
         max_price_cents: body.max_price_cents || null,
         marketplaces: body.marketplaces || [],
+        target_card_numbers:
+          Array.isArray(body.target_card_numbers) && body.target_card_numbers.length > 0
+            ? body.target_card_numbers
+            : null,
         is_active: true,
       })
       .select()

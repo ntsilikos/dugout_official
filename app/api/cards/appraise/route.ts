@@ -2,10 +2,19 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/api-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isCardHedgeConfigured, isEbayConfigured } from "@/lib/config";
-import { matchCard, getPriceEstimate } from "@/lib/cardhedge";
-import { buildCardQuery, cardGradeString, fetchCompsEbay } from "@/lib/pricing";
+import {
+  buildCardQuery,
+  checkAppraisalSanity,
+  fetchComps,
+  resolveCardhedgeIdForCard,
+  scoreEbayAppraisal,
+} from "@/lib/pricing";
 
 const COOLDOWN_HOURS = 24;
+
+// Small sleep so we don't blast eBay's rate limits inside a single batch.
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 1000;
 
 export async function POST() {
   return withAuth(async (user, supabase) => {
@@ -44,7 +53,7 @@ export async function POST() {
     }
 
     // Get all unsold cards — try with cardhedge_card_id, fall back without
-    let cards: {
+    type AppraisalCard = {
       id: string;
       player_name: string | null;
       year: number | null;
@@ -55,12 +64,15 @@ export async function POST() {
       grade_company: string | null;
       grade_value: number | null;
       cardhedge_card_id: string | null;
-    }[] = [];
+      estimated_value_cents: number | null;
+    };
+
+    let cards: AppraisalCard[] = [];
 
     const { data: cardsData, error: cardsError } = await supabase
       .from("cards")
       .select(
-        "id, player_name, year, brand, set_name, card_number, variant, grade_company, grade_value, cardhedge_card_id"
+        "id, player_name, year, brand, set_name, card_number, variant, grade_company, grade_value, cardhedge_card_id, estimated_value_cents"
       )
       .eq("user_id", user.id)
       .neq("status", "sold")
@@ -71,7 +83,9 @@ export async function POST() {
       // Column might not exist yet — retry without it
       const { data: fallback } = await supabase
         .from("cards")
-        .select("id, player_name, year, brand, set_name, card_number, variant, grade_company, grade_value")
+        .select(
+          "id, player_name, year, brand, set_name, card_number, variant, grade_company, grade_value, estimated_value_cents"
+        )
         .eq("user_id", user.id)
         .neq("status", "sold")
         .order("updated_at", { ascending: true });
@@ -84,6 +98,8 @@ export async function POST() {
       console.log("[appraise] No unsold cards found for user", user.id);
       return NextResponse.json({
         updated: 0,
+        flagged: 0,
+        no_match: 0,
         skipped: 0,
         total: 0,
         last_appraised_at: new Date().toISOString(),
@@ -93,119 +109,136 @@ export async function POST() {
     console.log(`[appraise] Starting appraisal of ${cards.length} cards`);
 
     // Capture old total for before/after comparison
-    const { data: oldCards } = await supabase
-      .from("cards")
-      .select("estimated_value_cents")
-      .eq("user_id", user.id)
-      .neq("status", "sold");
-    const oldTotalCents = (oldCards || []).reduce(
+    const oldTotalCents = cards.reduce(
       (sum, c) => sum + (c.estimated_value_cents || 0),
       0
     );
 
     const admin = createAdminClient();
-    let updated = 0;
-    let skipped = 0;
+    let verifiedCount = 0; // high-confidence writes
+    let flaggedCount = 0; // low/medium-confidence writes or skipped writes
+    let noMatchCount = 0; // zero comps
+    let errorCount = 0; // pipeline errors
 
-    // Process in batches of 10 with 1s delays
-    for (let i = 0; i < cards.length; i += 10) {
-      const batch = cards.slice(i, i + 10);
+    // Process in batches
+    for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+      const batch = cards.slice(i, i + BATCH_SIZE);
 
       for (const card of batch) {
         try {
-          const grade = cardGradeString(card);
-          const query = buildCardQuery(card);
-          let cardhedgeId = card.cardhedge_card_id;
-          let valueCents = 0;
+          // ---- Resolve CardHedge id (no-op when CardHedge disabled) ----
+          const resolved = await resolveCardhedgeIdForCard(user.id, card);
 
-          // ---- Metadata correction via CardHedge (identity only, not pricing) ----
-          // Still useful for fixing year/set/variant so the eBay search below is accurate.
-          if (isCardHedgeConfigured() && !cardhedgeId && query.trim()) {
-            try {
-              const matchResult = await matchCard(query);
-              if (matchResult.match && matchResult.match.confidence >= 0.7) {
-                cardhedgeId = matchResult.match.card_id;
-                const m = matchResult.match;
-                const yearMatch = m.set?.match(/^(\d{4})\s/);
-                const correctedYear = yearMatch ? parseInt(yearMatch[1]) : undefined;
-                const setBrand = m.set?.replace(/^\d{4}\s+/, "").replace(/\s+(Baseball|Basketball|Football|Hockey|Soccer)$/i, "") || undefined;
-
-                const corrections: Record<string, unknown> = { cardhedge_card_id: cardhedgeId };
-                if (m.player) corrections.player_name = m.player;
-                if (correctedYear) corrections.year = correctedYear;
-                if (setBrand) corrections.brand = setBrand;
-                if (m.set) corrections.set_name = m.set;
-                if (m.number) corrections.card_number = m.number;
-                if (m.variant) corrections.variant = m.variant;
-                if (m.category) corrections.sport = m.category;
-
-                await admin.from("cards").update(corrections).eq("id", card.id);
-                // Update our local card object so eBay search uses corrected data
-                Object.assign(card, corrections);
-                console.log(`[appraise] MATCHED via CardHedge (${m.confidence.toFixed(2)}): "${query}" → "${m.description}"`);
-              }
-            } catch {
-              // CardHedge match failed, continue to eBay anyway
-            }
-          }
-
-          // ---- Layer 1: eBay Browse API (PRIMARY for pricing) ----
-          if (isEbayConfigured() && query.trim()) {
-            try {
-              const ebayComps = await fetchCompsEbay(card);
-              if (ebayComps.median_cents > 0) {
-                valueCents = ebayComps.median_cents;
-                console.log(`[appraise] PRICED via eBay: $${(valueCents / 100).toFixed(2)} (${ebayComps.count} comps)`);
-              }
-            } catch {
-              // eBay failed too
-            }
-          }
-
-          // ---- Layer 2: CardHedge price (fallback only when eBay has nothing) ----
-          if (valueCents === 0 && isCardHedgeConfigured() && cardhedgeId) {
-            try {
-              const estimate = await getPriceEstimate(cardhedgeId, grade);
-              if (estimate.price > 0) {
-                valueCents = Math.round(estimate.price * 100);
-                console.log(`[appraise] PRICED via CardHedge (fallback): $${estimate.price.toFixed(2)} (${estimate.grade_label})`);
-              }
-            } catch {
-              // CardHedge estimate failed
-            }
-          }
-
-          // ---- Update the card ----
-          if (valueCents > 0) {
+          if (
+            resolved.cardhedgeId &&
+            !card.cardhedge_card_id &&
+            Object.keys(resolved.corrections).length > 0
+          ) {
+            // New match found — persist the corrections so future runs skip matching
             await admin
               .from("cards")
-              .update({ estimated_value_cents: valueCents })
+              .update(resolved.corrections)
               .eq("id", card.id);
-            updated++;
+            Object.assign(card, resolved.corrections);
+            console.log(
+              `[appraise] MATCHED via ${resolved.source} (${resolved.confidence.toFixed(2)}): "${buildCardQuery(card)}" → "${resolved.description || "?"}"`
+            );
+          }
+
+          const pricingInput = {
+            ...card,
+            cardhedge_card_id: resolved.cardhedgeId || card.cardhedge_card_id,
+          };
+          const pricingQuery = buildCardQuery(pricingInput);
+
+          if (!pricingQuery.trim()) {
+            console.log(`[appraise] SKIP (empty query): card ${card.id}`);
+            errorCount++;
+            continue;
+          }
+
+          const pricing = await fetchComps(pricingInput).catch((err) => {
+            console.error(
+              `[appraise] fetchComps failed for card ${card.id}:`,
+              err instanceof Error ? err.message : err
+            );
+            return null;
+          });
+
+          if (!pricing) {
+            errorCount++;
+            continue;
+          }
+
+          const proposedValue = pricing.median_cents || pricing.average_cents;
+          const score = scoreEbayAppraisal(pricing);
+          const sanity = checkAppraisalSanity(
+            card.estimated_value_cents,
+            proposedValue
+          );
+
+          // Sanity override: a huge jump downgrades confidence regardless of tier
+          const finalShouldWrite = score.shouldWriteValue && sanity.ok;
+          const finalStatus =
+            !sanity.ok && score.status === "verified"
+              ? "needs_review"
+              : score.status;
+          const finalReason =
+            !sanity.ok && sanity.reason ? sanity.reason : score.reason;
+
+          const nowIso = new Date().toISOString();
+          const update: Record<string, unknown> = {
+            appraisal_status: finalStatus,
+            appraisal_confidence:
+              score.confidence > 0 ? Number(score.confidence.toFixed(3)) : null,
+            appraisal_comp_count: pricing.count,
+            appraisal_flag_reason: finalReason,
+            appraisal_tier: pricing.tier ?? null,
+            last_appraised_at: nowIso,
+          };
+
+          if (finalShouldWrite && proposedValue > 0) {
+            update.estimated_value_cents = proposedValue;
+          }
+
+          await admin.from("cards").update(update).eq("id", card.id);
+
+          if (finalStatus === "verified" && finalShouldWrite) {
+            verifiedCount++;
+            console.log(
+              `[appraise] VERIFIED ${card.id}: $${(proposedValue / 100).toFixed(2)} (conf ${score.confidence.toFixed(2)}, ${pricing.count} comps)`
+            );
+          } else if (finalStatus === "no_match") {
+            noMatchCount++;
+            console.log(`[appraise] NO_MATCH ${card.id}: "${pricingQuery}"`);
           } else {
-            console.log(`[appraise] SKIP (no price data): "${query}"`);
-            skipped++;
+            flaggedCount++;
+            console.log(
+              `[appraise] FLAGGED ${card.id}: ${finalReason} (conf ${score.confidence.toFixed(2)}, ${pricing.count} comps)`
+            );
           }
         } catch (err) {
-          console.error(`[appraise] ERROR on card ${card.id}:`, err instanceof Error ? err.message : err);
-          skipped++;
+          console.error(
+            `[appraise] ERROR on card ${card.id}:`,
+            err instanceof Error ? err.message : err
+          );
+          errorCount++;
         }
       }
 
-      // Delay between batches
-      if (i + 10 < cards.length) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (i + BATCH_SIZE < cards.length) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }
 
-    // Update last_appraised_at
+    // Update last_appraised_at on profile
     const now = new Date().toISOString();
     await admin
       .from("profiles")
       .update({ last_appraised_at: now })
       .eq("id", user.id);
 
-    // Take a portfolio snapshot
+    // Take a portfolio snapshot based on whatever we have now
     const { data: allUserCards } = await admin
       .from("cards")
       .select("estimated_value_cents")
@@ -227,9 +260,16 @@ export async function POST() {
       { onConflict: "user_id,snapshot_date" }
     );
 
+    console.log(
+      `[appraise] DONE: ${verifiedCount} verified, ${flaggedCount} flagged, ${noMatchCount} no match, ${errorCount} errors`
+    );
+
     return NextResponse.json({
-      updated,
-      skipped,
+      updated: verifiedCount, // legacy alias for UI compatibility
+      verified: verifiedCount,
+      flagged: flaggedCount,
+      no_match: noMatchCount,
+      skipped: errorCount,
       total: cards.length,
       last_appraised_at: now,
       old_total_cents: oldTotalCents,
